@@ -2038,8 +2038,13 @@ Panel {
     readonly property var dims: root.sizes[root.sizeName] || root.sizes.default
     readonly property real leftW: Style.space(root.leftCols)
     readonly property real midW: Style.space(dims.mid)
-    readonly property real colW: Style.space(dims.right)
-    readonly property real wideW: leftW + midW + colW * root.wantColumns.length + 2 * Style.space(14)
+    // A column at the right: as wide as the size has it, or, on a screen with
+    // no room for that beside the list (a small one, or a large scale), what
+    // room there is (never over the list).
+    readonly property real colWide: Style.space(dims.right)
+    readonly property real fitW: panel.fittedContentWidth(100000)
+    readonly property real colW: Math.min(colWide, Math.max(Style.space(120), (fitW - 2 * Style.space(14) - leftW - Style.space(200)) / Math.max(1, root.rightCols)))
+    readonly property real wideW: leftW + midW + colWide * root.wantColumns.length + 2 * Style.space(14)
     readonly property bool roomForEach: panel.fittedContentWidth(wideW) >= wideW - 1
     readonly property real rightW: colW * root.rightCols
     contentWidth: panel.fittedContentWidth(leftW + midW + rightW + 2 * Style.space(14))
