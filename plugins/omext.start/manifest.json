@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "id": "omext.start",
+  "name": "Start",
+  "version": "1.0.0",
+  "author": "omarchy-extended",
+  "license": "MIT",
+  "description": "A start menu (omext start): the whole Omarchy menu on one page, the installed apps, and every open window by workspace, with search.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Start",
+    "description": "The Omarchy menu, apps and open windows, in one start menu.",
+    "category": "Compositor",
+    "allowMultiple": false,
+    "defaultSection": "center",
+    "defaults": {
+      "label": ""
+    },
+    "schema": [
+      {
+        "key": "label",
+        "type": "string",
+        "label": "Bar label (empty: the icon only)",
+        "defaultValue": ""
+      }
+    ]
+  }
+}

@@ -1,0 +1,8 @@
+{
+  // The omarchy-extended group, in Setup (every omext addon has it; any one keeps it).
+  "setup.omext": {"icon": "", "label": "Omarchy Extended", "description": "The omarchy-extended addons, on or off", "aliases": ["omext", "extended"]},
+  // Start on or off (off: no bar button, and Super + Space is Omarchy's menu's again).
+  "setup.omext.start": {"icon": "󰕰", "label": "Start", "description": "The start menu on the bar (off: no button, no shortcut)", "action": "if [ -e \"${XDG_STATE_HOME:-$HOME/.local/state}/omext/start/disabled\" ]; then omarchy-shell omext.start on && notify-send Start \"Turned on\"; else omarchy-shell omext.start off && notify-send Start \"Turned off\"; fi", "checked": "[ ! -e \"${XDG_STATE_HOME:-$HOME/.local/state}/omext/start/disabled\" ]"},
+  // Omarchy's dock on or off, while Start is on (off: Start's apps take Super + Alt + Space).
+  "setup.omext.omarchy-dock": {"icon": "󱂩", "label": "Omarchy Dock", "description": "Omarchy's own dock (off: Super + Alt + Space opens Start's apps; back on when Start is off)", "action": "if [ \"$(omext-settings toggle omext omarchyDockOff)\" = true ]; then m=\"Turned off: Super + Alt + Space opens Start's apps\"; else m=\"Turned on\"; fi; notify-send \"Omarchy Dock\" \"$m\"", "when": "[ ! -e \"${XDG_STATE_HOME:-$HOME/.local/state}/omext/start/disabled\" ] && ! omarchy plugin list --json | jq -e '.[] | select(.id == \"omext.taskbar\") | .enabled' >/dev/null", "checked": "! omext-settings get omext omarchyDockOff >/dev/null"}
+}
