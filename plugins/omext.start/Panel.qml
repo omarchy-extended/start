@@ -647,6 +647,73 @@ Panel {
 
   // The keyboard: Up/Down through the middle's rows, Enter runs one.
   property int cursor: -1
+
+  // --- the keyboard, beyond the left list -------------------------------------
+  // Tab goes from area to area: the left list, each pane at the right
+  // (favorites, open windows), the row at the foot (the gear, Lock, Power).
+  // The arrows move within the area and Enter runs what's chosen. Typing is
+  // always the search's, and takes the keyboard back to the list.
+  property string kbArea: "list"
+  property int kbIndex: 0
+  readonly property var kbAreas: ["list"].concat(settingsOpen ? [] : rightItems.filter(k => k !== "notifications" && settingsFor !== k)).concat(["foot"])
+  readonly property var kbFavs: favoriteRows.filter(r => !r.groupKey)
+  readonly property var kbWins: { var o = []; for (var g of windowGroups) for (var w of g.windows) o.push(w); return o }
+  // (root.powerRest: the name alone is an item's id further down.)
+  readonly property var kbFoot: [{ kind: "gear" }].concat(root.powerLock.map(e => ({ kind: "power", entry: e })))
+                                 .concat(root.powerOpen ? root.powerRest.map(e => ({ kind: "power", entry: e })) : []).concat([{ kind: "toggle" }])
+  readonly property var kbList: kbArea === "favorites" ? kbFavs : kbArea === "windows" ? kbWins : kbArea === "foot" ? kbFoot : []
+  readonly property var kbCur: kbList.length ? kbList[Math.max(0, Math.min(kbList.length - 1, kbIndex))] : null
+  readonly property string kbFavKey: kbArea === "favorites" && kbCur ? favKey(kbCur) : ""
+  readonly property string kbWinAddr: kbArea === "windows" && kbCur ? String(kbCur.address || "") : ""
+  readonly property string kbFootKind: kbArea === "foot" && kbCur ? String(kbCur.kind || "") : ""
+  readonly property string kbFootId: kbArea === "foot" && kbCur && kbCur.entry ? kbCur.entry.id : ""
+  onKbAreasChanged: if (kbAreas.indexOf(kbArea) < 0) kbArea = "list"
+  onKbFootIdChanged: powerHint = kbCur && kbCur.entry ? kbCur.entry.label : ""
+  function kbGo(area) {
+    kbIndex = 0
+    kbArea = area
+    // A pane folded away in a shared column: it opens.
+    if ((area === "favorites" || area === "windows") && foldOf(area) && rightOpenKey !== area) saveConfig({ rightOpen: area })
+    kbShow()
+  }
+  function kbNextArea(d) {
+    var a = kbAreas, i = Math.max(0, a.indexOf(kbArea))
+    kbGo(a[(i + d + a.length) % a.length])
+  }
+  function kbMove(dx, dy) {
+    var n = kbList.length
+    if (!n) return
+    var step
+    if (kbArea === "foot") step = dx || dy
+    else if (kbArea === "favorites" && favTiles) step = dx + dy * favFlow.perRow
+    else if (dx < 0) { kbGo("list"); return }   // a list: Left is back to the menu
+    else step = dy
+    kbIndex = Math.max(0, Math.min(n - 1, Math.min(kbIndex, n - 1) + step))
+    kbShow()
+  }
+  function kbShow() {   // what's chosen, in view
+    if (kbArea !== "favorites" || !kbCur) return
+    var rep = favTiles ? favTileRep : favListRep, flick = favTiles ? favTileFlick : favListFlick
+    var key = kbFavKey, at = favoriteRows.findIndex(r => !r.groupKey && favKey(r) === key)
+    var item = at >= 0 ? rep.itemAt(at) : null
+    if (!item) return
+    if (item.y < flick.contentY) flick.contentY = item.y
+    else if (item.y + item.height > flick.contentY + flick.height) flick.contentY = item.y + item.height - flick.height
+  }
+  function kbActivate() {
+    var it = kbCur
+    if (!it) return
+    if (kbArea === "favorites") activate(it)
+    else if (kbArea === "windows") goTo(it)
+    else if (it.kind === "gear") { if (settingsOpen) settingsOpen = false; else openSettings() }
+    else if (it.kind === "toggle") { powerOpen = !powerOpen; kbIndex = kbFoot.length - 1 }   // (still on Power: the rest open before it)
+    else activate({ entry: it.entry })
+  }
+  // Ctrl + D: the chosen app's star, on or off.
+  function kbStar() {
+    var k = kbArea === "favorites" ? kbFavKey : kbArea === "list" && cursor >= 0 ? favKey(pickable[cursor]) : ""
+    if (k) toggleFav(k)
+  }
   readonly property var pickable: pageRows.filter(r => !r.head)
   // A row by what it is (the rows are made anew when the guards come back).
   function rowKey(r) { return !r ? "" : r.win ? "w:" + r.win.address : r.entry ? "e:" + r.entry.id : r.app ? "a:" + r.app.id : "" }
@@ -669,7 +736,7 @@ Panel {
   // What the next open shows: a section (or a submenu), and a search.
   property string pendingPath: ""
   property string pendingQuery: ""
-  onOpenedChanged: if (!opened) { notesOpen = false; powerOpen = false; settingsFor = ""; headHint = ""; favDragKey = ""; paneDragKey = ""; if (notesInView && bellHistory.item) bellHistory.item.markSeen() } else {
+  onOpenedChanged: if (!opened) { kbArea = "list"; notesOpen = false; powerOpen = false; settingsFor = ""; headHint = ""; favDragKey = ""; paneDragKey = ""; if (notesInView && bellHistory.item) bellHistory.item.markSeen() } else {
     settingsOpen = false
     removeApp = null
     var want = pendingPath === "notifications" && bellThere && notesPlace === "left" ? pendingPath
@@ -1263,7 +1330,8 @@ Panel {
     width: compact ? 36 : pbRow.implicitWidth + 22
     height: 32
     radius: 6
-    color: pbHit.containsMouse ? Commons.Util.alpha(/shutdown|reboot/.test(entry ? entry.id : "") ? Commons.Color.urgent : root.accent, 0.25) : "transparent"
+    readonly property bool chosen: !!entry && root.kbFootId === entry.id   // by the keyboard
+    color: pbHit.containsMouse || chosen ? Commons.Util.alpha(/shutdown|reboot/.test(entry ? entry.id : "") ? Commons.Color.urgent : root.accent, 0.25) : "transparent"
     Row {
       id: pbRow
       anchors.centerIn: parent
@@ -1937,7 +2005,7 @@ Panel {
           font.family: root.fontFamily
           font.pixelSize: Style.font.body
           clip: true
-          onTextChanged: root.query = text
+          onTextChanged: { root.query = text; if (text) root.kbArea = "list" }
           Text {
             visible: !search.text
             text: root.windowsPlace !== "off" ? "Search the menu, apps and open windows" : "Search the menu and apps"
@@ -1946,13 +2014,38 @@ Panel {
           }
           // As Omarchy's menu: Up/Down (PageUp/PageDown: six), Enter or Right
           // runs or opens, Left or Backspace goes back, Delete uninstalls an
-          // app, Esc clears the search, then goes back, then closes.
+          // app, Esc clears the search, then goes back, then closes. Tab goes
+          // to the next area (see kbArea), Ctrl + Tab to the next section, and
+          // Ctrl + D stars the chosen app.
           Keys.onPressed: function(event) {
             var key = Util.readingKey(event)
             if (root.removeApp) {  // the question: Left/Right/Tab between its buttons
               if (key === Qt.Key_Left || key === Qt.Key_Right || key === Qt.Key_Tab || key === Qt.Key_Backtab) root.removeYes = !root.removeYes
               else if (key === Qt.Key_Return || key === Qt.Key_Enter) { if (root.removeYes) root.doRemove(); else root.removeApp = null }
               else if (key === Qt.Key_Escape) root.removeApp = null
+              event.accepted = true
+              return
+            }
+            var ctrl = !!(event.modifiers & Qt.ControlModifier)
+            if (ctrl && key === Qt.Key_D) { root.kbStar(); event.accepted = true; return }
+            if (key === Qt.Key_Tab || key === Qt.Key_Backtab) {
+              var back = key === Qt.Key_Backtab || !!(event.modifiers & Qt.ShiftModifier)
+              if (ctrl) {  // the next section (Tab alone: the next area)
+                var si = root.sections.findIndex(s => s.id === root.section)
+                var sn = root.sections[(si + (back ? -1 : 1) + root.sections.length) % root.sections.length]
+                if (sn) { search.text = ""; root.kbArea = "list"; root.open_(sn.id) }
+              } else root.kbNextArea(back ? -1 : 1)
+              event.accepted = true
+              return
+            }
+            if (root.kbArea !== "list") {  // in a pane at the right, or at the foot
+              if (key === Qt.Key_Down) root.kbMove(0, 1)
+              else if (key === Qt.Key_Up) root.kbMove(0, -1)
+              else if (key === Qt.Key_Left) root.kbMove(-1, 0)
+              else if (key === Qt.Key_Right) root.kbMove(1, 0)
+              else if (key === Qt.Key_Return || key === Qt.Key_Enter) root.kbActivate()
+              else if (key === Qt.Key_Escape) root.kbArea = "list"
+              else return  // a letter: the search's (which takes the keyboard back to the list)
               event.accepted = true
               return
             }
@@ -1978,12 +2071,6 @@ Panel {
               if (root.settingsOpen) root.settingsOpen = false
               else if (root.notesOpen) root.open_(root.section)
               else root.back()
-              event.accepted = true
-            } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
-              var i = root.sections.findIndex(s => s.id === root.section)
-              var d = event.key === Qt.Key_Backtab || (event.modifiers & Qt.ShiftModifier) ? -1 : 1
-              var next = root.sections[(i + d + root.sections.length) % root.sections.length]
-              if (next) { search.text = ""; root.open_(next.id) }
               event.accepted = true
             }
           }
@@ -2663,6 +2750,15 @@ Panel {
           Behavior on y { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
           Behavior on height { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
           PaneHead { id: favTitle; key: "favorites"; title: "Favorites" }
+          Rectangle {  // the keyboard is here
+            visible: root.kbArea === "favorites"
+            anchors.fill: parent
+            z: 3
+            radius: 8
+            color: "transparent"
+            border.width: 1
+            border.color: Commons.Util.alpha(root.accent, 0.55)
+          }
           PaneSettings {
             kind: "favorites"
             visible: root.settingsFor === "favorites"
@@ -2731,6 +2827,7 @@ Panel {
                     opacity: root.favDragKey !== "" && root.favDragKey === fk ? 0.4 : 1
                     onDragAt: function(y) { root.favDragTo(fk, favListRep, 0, lcell.y + y, false, favListFlick) }
                     onDropped: root.favDrop()
+                    selected: root.kbFavKey !== "" && root.kbFavKey === fk
                     onStarClicked: root.toggleFav(fk)
                     onClicked: root.activate(lcell.modelData)
                   }
@@ -2798,7 +2895,8 @@ Panel {
                     readonly property var modelData: wrap.modelData
                     readonly property string fk: root.favKey(modelData)
                     radius: 8
-                    color: tileHov.hovered ? Commons.Util.alpha(root.text, 0.08) : "transparent"
+                    color: root.kbFavKey !== "" && root.kbFavKey === fk ? Commons.Util.alpha(root.accent, 0.22)
+                         : tileHov.hovered ? Commons.Util.alpha(root.text, 0.08) : "transparent"
                     opacity: root.favDragKey === tile.fk ? 0.4 : 1
                     HoverHandler { id: tileHov }
                     Image {
@@ -2898,6 +2996,15 @@ Panel {
           clip: true
           Behavior on y { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
           Behavior on height { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+          Rectangle {  // the keyboard is here
+            visible: root.kbArea === "windows"
+            anchors.fill: parent
+            z: 3
+            radius: 8
+            color: "transparent"
+            border.width: 1
+            border.color: Commons.Util.alpha(root.accent, 0.55)
+          }
           PaneHead { id: winTitle; key: "windows"; title: "Open windows"; badge: root.foldOf("windows") && root.windowCount ? String(root.windowCount) : "" }
           PaneSettings {
             kind: "windows"
@@ -2940,6 +3047,7 @@ Panel {
                       label: modelData.title || root.windowName(modelData)
                       sub: root.windowName(modelData)
                       current: modelData.address === root.activeAddress
+                      selected: root.kbWinAddr !== "" && root.kbWinAddr === modelData.address
                       closable: true
                       onClicked: root.goTo(modelData)
                       onCloseClicked: root.closeWindow(modelData)
@@ -2959,16 +3067,18 @@ Panel {
         height: 44
         radius: 8
         color: Commons.Util.alpha(root.text, 0.04)
+        border.width: root.kbArea === "foot" ? 1 : 0
+        border.color: Commons.Util.alpha(root.accent, 0.55)
         HoverHandler { id: powerHov }
         Rectangle {  // Settings: the gear, there while the row is pointed at (or they're open)
           id: gear
-          opacity: powerHov.hovered || root.settingsOpen ? 1 : 0
+          opacity: powerHov.hovered || root.settingsOpen || root.kbArea === "foot" ? 1 : 0
           Behavior on opacity { NumberAnimation { duration: 120 } }
           anchors { left: parent.left; leftMargin: 6; verticalCenter: parent.verticalCenter }
           width: 34
           height: 32
           radius: 6
-          color: gearHit.containsMouse || root.settingsOpen ? Commons.Util.alpha(root.accent, 0.25) : "transparent"
+          color: gearHit.containsMouse || root.settingsOpen || root.kbFootKind === "gear" ? Commons.Util.alpha(root.accent, 0.25) : "transparent"
           Text { anchors.centerIn: parent; text: "\uf013"; color: root.text; font.family: root.iconFont; font.pixelSize: 15 }
           MouseArea { id: gearHit; anchors.fill: parent; hoverEnabled: true; onClicked: { if (root.settingsOpen) root.settingsOpen = false; else root.openSettings(); search.forceActiveFocus() } }
         }
@@ -3035,7 +3145,7 @@ Panel {
               width: ptRow.implicitWidth + 22
               height: 32
               radius: 6
-              color: root.powerOpen ? Commons.Util.alpha(root.accent, 0.3) : ptHit.containsMouse ? Commons.Util.alpha(root.accent, 0.2) : Commons.Util.alpha(root.text, 0.06)
+              color: root.powerOpen || root.kbFootKind === "toggle" ? Commons.Util.alpha(root.accent, 0.3) : ptHit.containsMouse ? Commons.Util.alpha(root.accent, 0.2) : Commons.Util.alpha(root.text, 0.06)
               Behavior on color { ColorAnimation { duration: 120 } }
               Row {
                 id: ptRow
