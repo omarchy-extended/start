@@ -655,25 +655,83 @@ Panel {
   // always the search's, and takes the keyboard back to the list.
   property string kbArea: "list"
   property int kbIndex: 0
-  readonly property var kbAreas: ["list"].concat(settingsOpen ? [] : rightItems.filter(k => k !== "notifications" && settingsFor !== k)).concat(["foot"])
+  // (The settings, open, are over the list and the panes: they are the area then.)
+  readonly property int kbNotes: notesInView && notesRight.item ? notesRight.item.count : 0
+  readonly property var kbAreas: (settingsOpen ? ["settings"] : ["list"].concat(rightItems.filter(k => settingsFor !== k && (k !== "notifications" || kbNotes > 0 || foldOf(k))))).concat(["foot"])
   readonly property var kbFavs: favoriteRows.filter(r => !r.groupKey)
   readonly property var kbWins: { var o = []; for (var g of windowGroups) for (var w of g.windows) o.push(w); return o }
   // (root.powerRest: the name alone is an item's id further down.)
   readonly property var kbFoot: [{ kind: "gear" }].concat(root.powerLock.map(e => ({ kind: "power", entry: e })))
                                  .concat(root.powerOpen ? root.powerRest.map(e => ({ kind: "power", entry: e })) : []).concat([{ kind: "toggle" }])
-  readonly property var kbList: kbArea === "favorites" ? kbFavs : kbArea === "windows" ? kbWins : kbArea === "foot" ? kbFoot : []
+  readonly property var kbList: kbArea === "favorites" ? kbFavs : kbArea === "windows" ? kbWins : kbArea === "foot" ? kbFoot
+                              : kbArea === "notifications" ? Array.from({ length: kbNotes }, (x, i) => ({ note: i })) : []
   readonly property var kbCur: kbList.length ? kbList[Math.max(0, Math.min(kbList.length - 1, kbIndex))] : null
   readonly property string kbFavKey: kbArea === "favorites" && kbCur ? favKey(kbCur) : ""
   readonly property string kbWinAddr: kbArea === "windows" && kbCur ? String(kbCur.address || "") : ""
   readonly property string kbFootKind: kbArea === "foot" && kbCur ? String(kbCur.kind || "") : ""
   readonly property string kbFootId: kbArea === "foot" && kbCur && kbCur.entry ? kbCur.entry.id : ""
-  onKbAreasChanged: if (kbAreas.indexOf(kbArea) < 0) kbArea = "list"
+  onKbAreasChanged: if (kbAreas.indexOf(kbArea) < 0) kbArea = kbAreas[0]
+  onSettingsOpenChanged: { kbRow = null; kbRowAt = -1; kbArea = settingsOpen ? "settings" : "list" }
+
+  // The settings: their rows (every MenuRow showing there), a column after the
+  // other, top to bottom. Up and Down step through them, Left and Right go to
+  // the row beside in the other column, Enter is a click on the one chosen.
+  property var kbRow: null
+  property int kbRowAt: -1
+  function kbRows() {
+    var out = []
+    function walk(item) {
+      for (var i = 0; i < item.children.length; i++) {
+        var c = item.children[i]
+        if (!c.visible) continue
+        if (c.isMenuRow === true && c.height > 0) { var p = c.mapToItem(settingsCol, 0, 0); out.push({ item: c, x: p.x, y: p.y }) }
+        else walk(c)
+      }
+    }
+    walk(settingsCol)
+    out.sort((a, b) => (Math.round(a.x / 40) - Math.round(b.x / 40)) || (a.y - b.y))
+    return out
+  }
+  function kbRowPick(rows, at) {
+    kbRowAt = Math.max(0, Math.min(rows.length - 1, at))
+    kbRow = rows.length ? rows[kbRowAt].item : null
+    if (!kbRow) return
+    var y = rows[kbRowAt].y
+    if (y < settingsFlick.contentY) settingsFlick.contentY = Math.max(0, y - 8)
+    else if (y + kbRow.height > settingsFlick.contentY + settingsFlick.height) settingsFlick.contentY = y + kbRow.height - settingsFlick.height + 8
+  }
+  function kbRowMove(dx, dy) {
+    var rows = kbRows()
+    if (!rows.length) return
+    if (kbRowAt < 0 || kbRowAt >= rows.length) { kbRowPick(rows, dy < 0 ? rows.length - 1 : 0); return }
+    if (dy) { kbRowPick(rows, kbRowAt + dy); return }
+    // The other column: the row nearest in height.
+    var me = rows[kbRowAt], best = -1
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i]
+      if ((dx > 0 ? r.x > me.x + 40 : r.x < me.x - 40) && (best < 0 || Math.abs(r.y - me.y) < Math.abs(rows[best].y - me.y))) best = i
+    }
+    if (best >= 0) kbRowPick(rows, best)
+  }
+  function kbRowClick() {
+    if (!kbRow) return
+    var at = kbRowAt
+    kbRow.clicked()
+    // (A setting changed can make its rows anew: the one at that place, then.)
+    Qt.callLater(function() { if (root.settingsOpen && root.kbArea === "settings") root.kbRowPick(root.kbRows(), at) })
+  }
+  // Something chosen with the keyboard, into view in the list it is in.
+  function kbReveal(item, flick) {
+    var y = item.mapToItem(flick.contentItem, 0, 0).y
+    if (y < flick.contentY) flick.contentY = y
+    else if (y + item.height > flick.contentY + flick.height) flick.contentY = y + item.height - flick.height
+  }
   onKbFootIdChanged: powerHint = kbCur && kbCur.entry ? kbCur.entry.label : ""
   function kbGo(area) {
     kbIndex = 0
     kbArea = area
     // A pane folded away in a shared column: it opens.
-    if ((area === "favorites" || area === "windows") && foldOf(area) && rightOpenKey !== area) saveConfig({ rightOpen: area })
+    if (area !== "list" && area !== "foot" && area !== "settings" && foldOf(area) && rightOpenKey !== area) saveConfig({ rightOpen: area })
     kbShow()
   }
   function kbNextArea(d) {
@@ -681,6 +739,7 @@ Panel {
     kbGo(a[(i + d + a.length) % a.length])
   }
   function kbMove(dx, dy) {
+    if (kbArea === "settings") { kbRowMove(dx, dy); return }
     var n = kbList.length
     if (!n) return
     var step
@@ -701,9 +760,11 @@ Panel {
     else if (item.y + item.height > flick.contentY + flick.height) flick.contentY = item.y + item.height - flick.height
   }
   function kbActivate() {
+    if (kbArea === "settings") { kbRowClick(); return }
     var it = kbCur
     if (!it) return
-    if (kbArea === "favorites") activate(it)
+    if (kbArea === "notifications") { if (notesRight.item) notesRight.item.activateChosen() }
+    else if (kbArea === "favorites") activate(it)
     else if (kbArea === "windows") goTo(it)
     else if (it.kind === "gear") { if (settingsOpen) settingsOpen = false; else openSettings() }
     else if (it.kind === "toggle") { powerOpen = !powerOpen; kbIndex = kbFoot.length - 1 }   // (still on Power: the rest open before it)
@@ -1776,6 +1837,8 @@ Panel {
     property int toggle: -1  // a switch: 0 off, 1 on (-1: not one)
     property bool current: false
     property bool selected: false
+    readonly property bool isMenuRow: true          // (for the keyboard in the settings: see kbRows)
+    readonly property bool kbChosen: root.kbRow === r
     property bool dimmed: false
     property bool closable: false
     property string badge: ""      // a count, at the row's right
@@ -1793,7 +1856,7 @@ Panel {
     width: parent ? parent.width : 0
     height: sub ? 44 : rowHeight
     radius: 6
-    color: selected ? Commons.Util.alpha(root.accent, 0.22)
+    color: selected || kbChosen ? Commons.Util.alpha(root.accent, 0.22)
          : hit.containsMouse ? Commons.Util.alpha(root.text, 0.08)
          : current ? Commons.Util.alpha(root.text, 0.05) : "transparent"
     Rectangle {  // the current one: a bar at its left, as in Windows' lists
@@ -2044,6 +2107,8 @@ Panel {
               else if (key === Qt.Key_Left) root.kbMove(-1, 0)
               else if (key === Qt.Key_Right) root.kbMove(1, 0)
               else if (key === Qt.Key_Return || key === Qt.Key_Enter) root.kbActivate()
+              else if (key === Qt.Key_Delete && root.kbArea === "notifications") { if (notesRight.item) notesRight.item.hideChosen() }
+              else if (root.kbArea === "settings" && (key === Qt.Key_Escape || key === Qt.Key_Backspace && !search.text)) root.settingsOpen = false
               else if (key === Qt.Key_Escape) root.kbArea = "list"
               else return  // a letter: the search's (which takes the keyboard back to the list)
               event.accepted = true
@@ -2967,6 +3032,16 @@ Panel {
           Behavior on y { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
           Behavior on height { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
           PaneHead { id: noteTitle; key: "notifications"; title: "Notifications"; badge: root.bellUnread ? String(root.bellUnread) : "" }
+          Rectangle {  // the keyboard is here
+            visible: root.kbArea === "notifications"
+            anchors.fill: parent
+            z: 3
+            radius: 8
+            color: "transparent"
+            border.width: 1
+            border.color: Commons.Util.alpha(root.accent, 0.55)
+          }
+          Binding { target: notesRight.item; property: "chosen"; value: root.kbArea === "notifications" ? Math.min(root.kbIndex, root.kbNotes - 1) : -1; when: !!notesRight.item }
           Loader {
             id: notesRight
             anchors { top: noteTitle.bottom; left: parent.left; right: parent.right; bottom: parent.bottom }
@@ -3021,6 +3096,7 @@ Panel {
             font.pixelSize: Style.font.bodySmall
           }
           Flickable {
+            id: winFlick
             visible: root.settingsFor !== "windows"
             anchors { top: winTitle.bottom; left: parent.left; right: parent.right; bottom: parent.bottom }
             contentHeight: winCol.implicitHeight
@@ -3048,6 +3124,7 @@ Panel {
                       sub: root.windowName(modelData)
                       current: modelData.address === root.activeAddress
                       selected: root.kbWinAddr !== "" && root.kbWinAddr === modelData.address
+                      onSelectedChanged: if (selected) root.kbReveal(this, winFlick)
                       closable: true
                       onClicked: root.goTo(modelData)
                       onCloseClicked: root.closeWindow(modelData)
