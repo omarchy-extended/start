@@ -657,7 +657,12 @@ Panel {
   property int kbIndex: 0
   // (The settings, open, are over the list and the panes: they are the area then.)
   readonly property int kbNotes: notesInView && notesRight.item ? notesRight.item.count : 0
-  readonly property var kbAreas: (settingsOpen ? ["settings"] : ["list"].concat(rightItems.filter(k => settingsFor !== k && (k !== "notifications" || kbNotes > 0 || foldOf(k))))).concat(["foot"])
+  readonly property var kbAreas: (settingsOpen ? ["settings"] : ["list"].concat(rightItems.filter(k => k !== "notifications" || kbNotes > 0 || foldOf(k) || settingsFor === k))).concat(["foot"])
+  // A pane's own settings open (its gear, or Ctrl + , there): the keyboard is
+  // on their rows, as in the menu's settings.
+  readonly property bool kbPaneSet: kbArea !== "" && settingsFor === kbArea
+  onSettingsForChanged: { kbRow = null; kbRowAt = -1 }
+  function kbRowRoot() { return settingsOpen ? settingsCol : kbArea === "favorites" ? favPane : kbArea === "windows" ? winPane : notePane }
   readonly property var kbFavs: favoriteRows.filter(r => !r.groupKey)
   readonly property var kbWins: { var o = []; for (var g of windowGroups) for (var w of g.windows) o.push(w); return o }
   // (root.powerRest: the name alone is an item's id further down.)
@@ -679,23 +684,23 @@ Panel {
   property var kbRow: null
   property int kbRowAt: -1
   function kbRows() {
-    var out = []
+    var out = [], top = kbRowRoot()
     function walk(item) {
       for (var i = 0; i < item.children.length; i++) {
         var c = item.children[i]
         if (!c.visible) continue
-        if (c.isMenuRow === true && c.height > 0) { var p = c.mapToItem(settingsCol, 0, 0); out.push({ item: c, x: p.x, y: p.y }) }
+        if (c.isMenuRow === true && c.height > 0) { var p = c.mapToItem(top, 0, 0); out.push({ item: c, x: p.x, y: p.y }) }
         else walk(c)
       }
     }
-    walk(settingsCol)
+    walk(top)
     out.sort((a, b) => (Math.round(a.x / 40) - Math.round(b.x / 40)) || (a.y - b.y))
     return out
   }
   function kbRowPick(rows, at) {
     kbRowAt = Math.max(0, Math.min(rows.length - 1, at))
     kbRow = rows.length ? rows[kbRowAt].item : null
-    if (!kbRow) return
+    if (!kbRow || !settingsOpen) return
     var y = rows[kbRowAt].y
     if (y < settingsFlick.contentY) settingsFlick.contentY = Math.max(0, y - 8)
     else if (y + kbRow.height > settingsFlick.contentY + settingsFlick.height) settingsFlick.contentY = y + kbRow.height - settingsFlick.height + 8
@@ -718,7 +723,7 @@ Panel {
     var at = kbRowAt
     kbRow.clicked()
     // (A setting changed can make its rows anew: the one at that place, then.)
-    Qt.callLater(function() { if (root.settingsOpen && root.kbArea === "settings") root.kbRowPick(root.kbRows(), at) })
+    Qt.callLater(function() { if (root.settingsOpen && root.kbArea === "settings" || root.kbPaneSet) root.kbRowPick(root.kbRows(), at) })
   }
   // Something chosen with the keyboard, into view in the list it is in.
   function kbReveal(item, flick) {
@@ -739,7 +744,7 @@ Panel {
     kbGo(a[(i + d + a.length) % a.length])
   }
   function kbMove(dx, dy) {
-    if (kbArea === "settings") { kbRowMove(dx, dy); return }
+    if (kbArea === "settings" || kbPaneSet) { kbRowMove(dx, dy); return }
     var n = kbList.length
     if (!n) return
     var step
@@ -760,7 +765,7 @@ Panel {
     else if (item.y + item.height > flick.contentY + flick.height) flick.contentY = item.y + item.height - flick.height
   }
   function kbActivate() {
-    if (kbArea === "settings") { kbRowClick(); return }
+    if (kbArea === "settings" || kbPaneSet) { kbRowClick(); return }
     var it = kbCur
     if (!it) return
     if (kbArea === "notifications") { if (notesRight.item) notesRight.item.activateChosen() }
@@ -2091,6 +2096,13 @@ Panel {
             }
             var ctrl = !!(event.modifiers & Qt.ControlModifier)
             if (ctrl && key === Qt.Key_D) { root.kbStar(); event.accepted = true; return }
+            if (ctrl && key === Qt.Key_Comma) {  // settings: the pane's the keyboard is in, else the menu's
+              if (root.rightItems.indexOf(root.kbArea) >= 0) root.settingsFor = root.settingsFor === root.kbArea ? "" : root.kbArea
+              else if (root.settingsOpen) root.settingsOpen = false
+              else root.openSettings()
+              event.accepted = true
+              return
+            }
             if (key === Qt.Key_Tab || key === Qt.Key_Backtab) {
               var back = key === Qt.Key_Backtab || !!(event.modifiers & Qt.ShiftModifier)
               if (ctrl) {  // the next section (Tab alone: the next area)
@@ -2109,6 +2121,7 @@ Panel {
               else if (key === Qt.Key_Return || key === Qt.Key_Enter) root.kbActivate()
               else if (key === Qt.Key_Delete && root.kbArea === "notifications") { if (notesRight.item) notesRight.item.hideChosen() }
               else if (root.kbArea === "settings" && (key === Qt.Key_Escape || key === Qt.Key_Backspace && !search.text)) root.settingsOpen = false
+              else if (key === Qt.Key_Escape && root.kbPaneSet) root.settingsFor = ""
               else if (key === Qt.Key_Escape) root.kbArea = "list"
               else return  // a letter: the search's (which takes the keyboard back to the list)
               event.accepted = true
@@ -3025,6 +3038,7 @@ Panel {
 
         // Notifications (omext bell's list), at the menu's size.
         Item {
+          id: notePane
           visible: root.rightItems.indexOf("notifications") >= 0 && !root.settingsOpen
           x: body.paneX("notifications"); y: body.paneY("notifications")
           width: body.paneW("notifications"); height: body.paneH("notifications")
@@ -3065,6 +3079,7 @@ Panel {
 
         // Open windows, by workspace: a click goes there.
         Item {
+          id: winPane
           visible: root.rightItems.indexOf("windows") >= 0 && !root.settingsOpen
           x: body.paneX("windows"); y: body.paneY("windows")
           width: body.paneW("windows"); height: body.paneH("windows")

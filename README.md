@@ -87,6 +87,7 @@ for all of it.
 | Delete | On an app: uninstall it (asks first) |
 | Tab / Shift + Tab | Next or previous area: the list, the favorites, open windows and notifications at the right, the row at the foot (the gear, Lock, Power). A frame shows where the keyboard is; the arrows move there and Enter runs what's chosen (Delete, on a notification: it goes) |
 | In the settings | Up / Down through the settings, Left / Right to the other column, Enter changes the one chosen, Esc closes them |
+| Ctrl + , | Settings: the pane's the keyboard is in (favorites, open windows, notifications), else the menu's. The same keys work there |
 | Ctrl + Tab / Ctrl + Shift + Tab | Next or previous section |
 | Ctrl + D | The chosen app's star, on or off |
 | Esc | Clear the search, go back from a submenu, then close |
