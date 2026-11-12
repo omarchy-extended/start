@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "omext.start",
   "name": "Start",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "omarchy-extended",
   "license": "MIT",
   "description": "A start menu (omext start): the whole Omarchy menu on one page, the installed apps, and every open window by workspace, with search.",
