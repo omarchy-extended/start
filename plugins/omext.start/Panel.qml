@@ -2322,7 +2322,7 @@ Panel {
             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
             Rectangle {  // a favorite being dragged: where it would land
               visible: root.favDragKey !== "" && root.specialPage === "favorites" && !root.query
-              x: 6; y: root.favDropY - 2
+              x: 6; y: Math.max(0, root.favDropY - 2)   // (not above the list's top, where it would be cut off: before the first)
               z: 2
               width: pageCol.width - 12; height: 2; radius: 1
               color: root.accent
@@ -2868,7 +2868,7 @@ Panel {
             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
             Rectangle {  // one being dragged: where it would land
               visible: root.favDragKey !== ""
-              x: 6; y: root.favDropY - 2
+              x: 6; y: Math.max(0, root.favDropY - 2)   // (not above the list's top, where it would be cut off: before the first)
               z: 2
               width: favListCol.width - 12; height: 2; radius: 1
               color: root.accent
