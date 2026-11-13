@@ -1336,6 +1336,43 @@ Panel {
     var have = startupItems.map(e => e.id)
     return apps.filter(a => String(a.name).toLowerCase().indexOf(q) >= 0 && have.indexOf("user:" + a.id + ".desktop") < 0).slice(0, 5)
   }
+  // Which app opens what (omext core's omext-defaults): a row per kind of
+  // thing, the app that opens it now under its name; a click lists the apps
+  // that can, and choosing one makes it the default. A file type of your own
+  // choosing (.pdf) the same way.
+  readonly property string defaultsTool: Quickshell.env("HOME") + "/.local/bin/omext-defaults"
+  property var defaultKinds: []
+  property string defaultOpen: ""     // the kind whose apps are listed
+  property var defaultType: null      // the file type asked about
+  function defaultsLoad() { defaultsProc.running = false; defaultsProc.running = true }
+  function defaultsAsk(word) {
+    defaultsTypeProc.running = false
+    if (!word.trim()) { defaultType = null; return }
+    defaultsTypeProc.command = [defaultsTool, "type", word.trim()]
+    defaultsTypeProc.running = true
+  }
+  function defaultsSet(what, app) {
+    Quickshell.execDetached([defaultsTool, "set", what, app])
+    defaultsLater.restart()
+  }
+  function defaultsIcon(icon) {
+    return !icon ? "" : icon.charAt(0) === "/" ? "file://" + icon : Quickshell.iconPath(icon, true)
+  }
+  Timer { id: defaultsLater; interval: 900; onTriggered: { root.defaultsLoad(); if (root.defaultType) root.defaultsAsk(defaultTypeInput.text) } }
+  Timer { id: defaultsTypeLater; interval: 250; onTriggered: root.defaultsAsk(defaultTypeInput.text) }
+  Process {
+    id: defaultsProc
+    command: [root.defaultsTool, "list"]
+    stdout: StdioCollector {
+      onStreamFinished: { try { root.defaultKinds = JSON.parse(text) } catch (e) { root.defaultKinds = [] } }
+    }
+  }
+  Process {
+    id: defaultsTypeProc
+    stdout: StdioCollector {
+      onStreamFinished: { try { root.defaultType = JSON.parse(text) } catch (e) { root.defaultType = null } }
+    }
+  }
   function startupLoad() { startupProc.running = false; startupProc.running = true }
   function startupRun(args) {
     Quickshell.execDetached([startupTool].concat(args))
@@ -1356,6 +1393,8 @@ Panel {
     settingsOpen = true
     startupQuery = ""
     startupLoad()
+    defaultOpen = ""
+    defaultsLoad()
     search.text = ""
     labelInput.text = barLabel
     menuOwnKeys.text = menuKeys && menuKeys !== defaultShortcut ? prettyKeys(menuKeys) : ""
@@ -2819,6 +2858,115 @@ Panel {
                 Text { anchors.centerIn: parent; text: "Set"; color: root.text; font.family: root.fontFamily; font.pixelSize: Style.font.bodySmall }
                 MouseArea { id: labelHit; anchors.fill: parent; hoverEnabled: true; onClicked: { root.saveConfig({ label: labelInput.text.trim() }); search.forceActiveFocus() } }
               }
+            }
+
+            SetHead { text: "Default apps" }
+            Repeater {
+              model: root.defaultKinds
+              Column {
+                id: kindBox
+                required property var modelData
+                readonly property bool open: root.defaultOpen === modelData.id
+                width: parent.width
+                spacing: 2
+                MenuRow {
+                  readonly property string found: root.defaultsIcon(kindBox.modelData.current ? kindBox.modelData.current.icon : "")
+                  image: found
+                  glyph: found ? "" : "\uf013"
+                  label: kindBox.modelData.name
+                  sub: kindBox.modelData.current ? kindBox.modelData.current.name : kindBox.modelData.apps.length ? "None chosen" : "No app for it"
+                  dimmed: kindBox.modelData.apps.length === 0
+                  badge: kindBox.open ? "\u2212" : kindBox.modelData.apps.length > 1 ? String(kindBox.modelData.apps.length) : ""
+                  onClicked: if (kindBox.modelData.apps.length) root.defaultOpen = kindBox.open ? "" : kindBox.modelData.id
+                }
+                Column {
+                  visible: kindBox.open
+                  x: 26; width: parent.width - 26
+                  spacing: 2
+                  Repeater {
+                    model: kindBox.open ? kindBox.modelData.apps : []
+                    MenuRow {
+                      required property var modelData
+                      readonly property string found: root.defaultsIcon(modelData.icon)
+                      rowHeight: 30
+                      image: found
+                      glyph: found ? "" : "\uf013"
+                      label: modelData.name
+                      current: !!kindBox.modelData.current && kindBox.modelData.current.id === modelData.id
+                      badge: current ? "Default" : ""
+                      onClicked: { root.defaultsSet(kindBox.modelData.id, modelData.id); search.forceActiveFocus() }
+                    }
+                  }
+                }
+              }
+            }
+            MenuRow {
+              glyph: "\u{F0214}"
+              label: "A file type"
+              sub: "Type it below (.pdf, .docx), then choose its app"
+              onClicked: defaultTypeInput.forceActiveFocus()
+            }
+            Rectangle {
+              id: defaultTypeBox
+              x: 42
+              width: Math.max(80, Math.min(260, parent.width - 42 - 12)); height: 30; radius: 6
+              color: Commons.Util.alpha(root.text, 0.06)
+              border.color: Commons.Util.alpha(root.accent, defaultTypeInput.activeFocus ? 0.8 : 0.3)
+              TextInput {
+                id: defaultTypeInput
+                anchors { fill: parent; leftMargin: 8; rightMargin: 8 }
+                verticalAlignment: TextInput.AlignVCenter
+                color: root.text
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                clip: true
+                maximumLength: 80
+                onTextChanged: { defaultsTypeLater.restart(); defaultTypeShow.restart() }
+                onActiveFocusChanged: if (activeFocus) defaultTypeShow.restart()
+                Keys.onEscapePressed: { text = ""; search.forceActiveFocus() }
+                Text { visible: !defaultTypeInput.text; text: ".pdf"; color: root.dim; font: defaultTypeInput.font; anchors.verticalCenter: parent.verticalCenter }
+              }
+            }
+            Text {
+              visible: defaultTypeInput.text.trim() !== "" && !root.defaultType && !defaultsTypeLater.running && !defaultsTypeProc.running
+              leftPadding: 42
+              text: "No such file type"
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+            Column {
+              visible: !!root.defaultType
+              width: parent.width
+              spacing: 2
+              Text {
+                width: parent.width
+                leftPadding: 42; topPadding: 4
+                text: root.defaultType ? root.defaultType.name + (root.defaultType.apps.length ? "" : ": no app says it opens it") : ""
+                elide: Text.ElideRight
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+              }
+              Repeater {
+                model: root.defaultType ? root.defaultType.apps : []
+                MenuRow {
+                  required property var modelData
+                  readonly property string found: root.defaultsIcon(modelData.icon)
+                  rowHeight: 30
+                  image: found
+                  glyph: found ? "" : "\uf013"
+                  label: modelData.name
+                  current: !!root.defaultType.current && root.defaultType.current.id === modelData.id
+                  badge: current ? "Default" : ""
+                  onClicked: { root.defaultsSet(root.defaultType.type, modelData.id); search.forceActiveFocus() }
+                }
+              }
+            }
+            Item {
+              id: defaultTypeEnd
+              width: 1; height: 1
+              Timer { id: defaultTypeShow; interval: 320; onTriggered: { root.kbReveal(defaultTypeBox, settingsFlick); root.kbReveal(defaultTypeEnd, settingsFlick) } }
             }
 
             SetHead { text: "Omarchy's dock" }

@@ -112,6 +112,13 @@ same for Start on every screen.
   has a ✕ to take it out again. What Hyprland's own config starts
   (`~/.config/hypr/autostart.lua`) is not in the list. From a script:
   `omext-startup` (omext core).
+- **Default apps**: which app opens what. A row per kind of thing (web
+  browser, mail, files, terminal, text, PDF, pictures, video, music, documents,
+  spreadsheets, archives) with the app that opens it now; a click lists the
+  apps that can, and choosing one makes it the default. For one file type,
+  type it in the field (`.pdf`, `.docx`) and choose its app. Kept where every
+  app looks for it (`~/.config/mimeapps.list`), so the file manager's Open
+  follows. From a script: `omext-defaults` (omext core).
 - **Size**: Compact, Default, Large or Extra large; never more than the
   screen has room for.
 - **In place of Omarchy's menu button**: Start's button goes where Omarchy's
