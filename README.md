@@ -104,6 +104,14 @@ same for Start on every screen.
   With Start on Super + Space, Omarchy's menu moves: to Super + Alt + M (a
   swap, the default), to keys of your own, or to none (then it's on the bar
   button's right click).
+- **Starts at login**: what starts when you log in, in one list, each with a
+  switch: your own entries (`~/.config/autostart`), the system's (marked
+  System; they can be turned off, not removed) and the apps that start with an
+  [omext dock](https://github.com/omarchy-extended/docks) (marked with the
+  dock). Add an app: type its name in the field and choose it. One you added
+  has a ✕ to take it out again. What Hyprland's own config starts
+  (`~/.config/hypr/autostart.lua`) is not in the list. From a script:
+  `omext-startup` (omext core).
 - **Size**: Compact, Default, Large or Extra large; never more than the
   screen has room for.
 - **In place of Omarchy's menu button**: Start's button goes where Omarchy's

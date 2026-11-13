@@ -1323,9 +1323,39 @@ Panel {
     command: ["hyprctl", "binds", "-j"]
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: { try { root.binds = JSON.parse(text) } catch (e) { root.binds = [] } } }
   }
+  // --- what starts at login -----------------------------------------------------
+  // One list (omext core's omext-startup): your own autostart entries, the
+  // system's, and the omext docks' apps that start with their dock. A row's
+  // switch turns one on or off; an app is added by its name.
+  readonly property string startupTool: Quickshell.env("HOME") + "/.local/bin/omext-startup"
+  property var startupItems: []
+  property string startupQuery: ""
+  readonly property var startupMatches: {
+    var q = startupQuery.trim().toLowerCase()
+    if (!q) return []
+    var have = startupItems.map(e => e.id)
+    return apps.filter(a => String(a.name).toLowerCase().indexOf(q) >= 0 && have.indexOf("user:" + a.id + ".desktop") < 0).slice(0, 5)
+  }
+  function startupLoad() { startupProc.running = false; startupProc.running = true }
+  function startupRun(args) {
+    Quickshell.execDetached([startupTool].concat(args))
+    startupLater.restart()
+  }
+  Timer { id: startupLater; interval: 900; onTriggered: root.startupLoad() }
+  Process {
+    id: startupProc
+    command: [root.startupTool, "list"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: { try { root.startupItems = JSON.parse(text) } catch (e) { root.startupItems = [] } }
+    }
+  }
+
   function openSettings() {
     notesOpen = false
     settingsOpen = true
+    startupQuery = ""
+    startupLoad()
     search.text = ""
     labelInput.text = barLabel
     menuOwnKeys.text = menuKeys && menuKeys !== defaultShortcut ? prettyKeys(menuKeys) : ""
@@ -1896,7 +1926,7 @@ Panel {
     Column {
       anchors.verticalCenter: parent.verticalCenter
       x: ic.x + ic.width + 10
-      width: r.width - x - (r.toggle >= 0 ? 50 : r.more || r.closable ? 30 : r.badge ? badgeBox.width + 16 : 10)
+      width: r.width - x - (r.toggle >= 0 ? 50 + (r.badge ? badgeBox.width + 6 : r.closable ? 26 : 0) : r.more || r.closable ? 30 : r.badge ? badgeBox.width + 16 : 10)
       Text {
         width: parent.width
         text: r.label
@@ -1933,7 +1963,7 @@ Panel {
     Rectangle {
       id: badgeBox
       visible: r.badge !== ""
-      anchors { right: parent.right; rightMargin: 8; verticalCenter: parent.verticalCenter }
+      anchors { right: parent.right; rightMargin: r.toggle >= 0 ? 48 : 8; verticalCenter: parent.verticalCenter }
       width: Math.max(20, badgeText.implicitWidth + 10); height: 18; radius: 9
       color: Commons.Util.alpha(root.text, 0.1)
       Text { id: badgeText; anchors.centerIn: parent; text: r.badge; color: root.dim; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
@@ -1997,7 +2027,7 @@ Panel {
     }
     Rectangle {  // closes the window (shown on hover)
       visible: r.closable && (hit.containsMouse || xHit.containsMouse)
-      anchors { right: parent.right; rightMargin: 6; verticalCenter: parent.verticalCenter }
+      anchors { right: parent.right; rightMargin: r.toggle >= 0 ? 46 : 6; verticalCenter: parent.verticalCenter }
       width: 22; height: 22; radius: 5
       color: xHit.containsMouse ? Commons.Util.alpha(Commons.Color.urgent, 0.35) : Commons.Util.alpha(root.text, 0.08)
       Text { anchors.centerIn: parent; text: "✕"; color: root.text; font.pixelSize: 11 }
@@ -2577,6 +2607,75 @@ Panel {
               sub: "Right click on Start's bar button only"
               current: root.menuKeys === ""
               onClicked: { root.setMenuKeys(""); menuOwnKeys.text = ""; search.forceActiveFocus() }
+            }
+            SetHead { text: "Starts at login" }
+            Text {
+              visible: root.startupItems.length === 0
+              leftPadding: 10
+              text: "Nothing listed"
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+            }
+            Repeater {
+              model: root.startupItems
+              MenuRow {
+                required property var modelData
+                rowHeight: 32
+                readonly property string found: !modelData.icon ? "" : modelData.icon.charAt(0) === "/" ? "file://" + modelData.icon : Quickshell.iconPath(modelData.icon, true)
+                image: found
+                glyph: found ? "" : "\uf013"
+                label: modelData.name
+                badge: modelData.kind === "dock" ? (modelData.where || "Dock") : modelData.kind === "system" ? "System" : ""
+                toggle: modelData.on ? 1 : 0
+                closable: modelData.removable === true
+                onClicked: root.startupRun(["set", modelData.id, modelData.on ? "off" : "on"])
+                onCloseClicked: root.startupRun(["remove", modelData.id])
+              }
+            }
+            MenuRow {
+              glyph: "\u{F0415}"
+              label: "Add an app"
+              sub: "Type its name below, then choose it"
+              onClicked: startupInput.forceActiveFocus()
+            }
+            Rectangle {
+              id: startupBox
+              x: 42
+              width: Math.max(80, Math.min(260, parent.width - 42 - 12)); height: 30; radius: 6
+              color: Commons.Util.alpha(root.text, 0.06)
+              border.color: Commons.Util.alpha(root.accent, startupInput.activeFocus ? 0.8 : 0.3)
+              TextInput {
+                id: startupInput
+                anchors { fill: parent; leftMargin: 8; rightMargin: 8 }
+                verticalAlignment: TextInput.AlignVCenter
+                color: root.text
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                clip: true
+                maximumLength: 40
+                onTextChanged: { root.startupQuery = text; startupShow.restart() }
+                onActiveFocusChanged: if (activeFocus) startupShow.restart()
+                Keys.onReturnPressed: if (root.startupMatches.length) { root.startupRun(["add", root.startupMatches[0].id]); text = ""; search.forceActiveFocus() }
+                Keys.onEscapePressed: { text = ""; search.forceActiveFocus() }
+                Text { visible: !startupInput.text; text: "An app's name"; color: root.dim; font: startupInput.font; anchors.verticalCenter: parent.verticalCenter }
+              }
+            }
+            Repeater {
+              model: root.startupMatches
+              MenuRow {
+                required property var modelData
+                rowHeight: 32
+                image: root.iconFor(modelData.icon)
+                label: modelData.name
+                badge: "Add"
+                onClicked: { root.startupRun(["add", modelData.id]); startupInput.text = ""; search.forceActiveFocus() }
+              }
+            }
+            Item {  // the field's end: what the settings scroll to, the matches with it
+              id: startupEnd
+              width: 1; height: 1
+              Timer { id: startupShow; interval: 30; onTriggered: { root.kbReveal(startupBox, settingsFlick); root.kbReveal(startupEnd, settingsFlick) } }
             }
           }
           Column {
